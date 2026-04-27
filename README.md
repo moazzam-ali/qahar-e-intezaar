@@ -50,6 +50,26 @@ Tagline: **Time, since.**
 npm install
 ```
 
+## Generating app icons / splash from source artwork
+
+The repo doesn't ship pre-baked icon files — instead, drop your two source images into `assets/source/` and run a build script that derives every required size and safe-area variant from them.
+
+```bash
+# One time: install Pillow for the build script
+pip3 install Pillow
+
+# Drop your generated images into assets/source/ first
+#   - assets/source/icon-cream.png        (icon on warm cream)
+#   - assets/source/icon-transparent.png  (icon on transparency)
+
+# Then build
+python3 scripts/build-assets.py
+```
+
+This produces `assets/icon.png`, `assets/adaptive-icon.png`, `assets/splash.png`, and `assets/favicon.png` — all keyed off your two source images so re-runs after a logo iteration are a single command. See `assets/source/README.md` for details.
+
+
+
 ## Run (in-app development, no widget)
 
 ```bash
