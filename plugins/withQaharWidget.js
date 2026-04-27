@@ -27,6 +27,7 @@ const {
   withAndroidManifest,
   withAppBuildGradle,
   withMainApplication,
+  withStringsXml,
   AndroidConfig,
 } = require("@expo/config-plugins");
 
@@ -43,11 +44,33 @@ function withQaharWidget(config, props = {}) {
   config = withQaharIosEntitlements(config, { appGroup });
   config = withQaharIosBridgeFiles(config);
   config = withQaharAndroidWidgetSources(config);
+  config = withQaharAndroidStrings(config);
   config = withQaharAndroidManifest(config);
   config = withQaharAndroidPackageRegister(config);
   config = withQaharAndroidGradle(config);
 
   return config;
+}
+
+/**
+ * Inject the widget's user-visible strings into the merged strings.xml.
+ * `qahar_widget_info.xml` references @string/qahar_widget_description, and
+ * `android:label` on the receiver references it via the manifest. Without the
+ * string the build would fail with "resource not found".
+ */
+function withQaharAndroidStrings(config) {
+  return withStringsXml(config, (cfg) => {
+    cfg.modResults = AndroidConfig.Strings.setStringItem(
+      [
+        {
+          $: { name: "qahar_widget_description", translatable: "false" },
+          _: "How long it has been.",
+        },
+      ],
+      cfg.modResults,
+    );
+    return cfg;
+  });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -173,32 +196,44 @@ function withQaharAndroidManifest(config) {
   return withAndroidManifest(config, async (cfg) => {
     const app = AndroidConfig.Manifest.getMainApplicationOrThrow(cfg.modResults);
     app.receiver = app.receiver ?? [];
-    const exists = app.receiver.find(
-      (r) => r.$["android:name"] === ".widget.QaharWidgetProvider",
+
+    // Drop any prior registration so we never end up with a stale exported=false
+    // entry from an older plugin version still sitting in the manifest.
+    app.receiver = app.receiver.filter(
+      (r) => r.$["android:name"] !== ".widget.QaharWidgetProvider",
     );
-    if (!exists) {
-      app.receiver.push({
-        $: {
-          "android:name": ".widget.QaharWidgetProvider",
-          "android:exported": "false",
+
+    // android:exported MUST be "true" for AppWidget receivers — the system
+    // launcher lives in a different process and binds the receiver across the
+    // process boundary via the APPWIDGET_UPDATE intent. With exported=false on
+    // Android 12+ the launcher cannot reach the receiver, which surfaces on
+    // Samsung One UI as "Could not add widget" when the user drops it on the
+    // home screen.
+    app.receiver.push({
+      $: {
+        "android:name": ".widget.QaharWidgetProvider",
+        "android:exported": "true",
+        "android:label": "Qahar-e-Hijr",
+      },
+      "intent-filter": [
+        {
+          action: [
+            { $: { "android:name": "android.appwidget.action.APPWIDGET_UPDATE" } },
+            // Custom action used by our AlarmManager-based per-minute tick so
+            // the magnitude line stays fresh between OS-driven refreshes.
+            { $: { "android:name": "com.qaharteam.qaharehijr.widget.ACTION_TICK" } },
+          ],
         },
-        "intent-filter": [
-          {
-            action: [
-              { $: { "android:name": "android.appwidget.action.APPWIDGET_UPDATE" } },
-            ],
+      ],
+      "meta-data": [
+        {
+          $: {
+            "android:name": "android.appwidget.provider",
+            "android:resource": "@xml/qahar_widget_info",
           },
-        ],
-        "meta-data": [
-          {
-            $: {
-              "android:name": "android.appwidget.provider",
-              "android:resource": "@xml/qahar_widget_info",
-            },
-          },
-        ],
-      });
-    }
+        },
+      ],
+    });
     return cfg;
   });
 }

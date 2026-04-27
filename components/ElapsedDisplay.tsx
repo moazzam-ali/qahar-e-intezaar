@@ -81,31 +81,46 @@ export function ElapsedDisplay({
     () => buildSegments(timer, now),
     [timer.startedAt, timer.pausedAt, timer.accumulatedPause, now],
   );
+  const secondsLine = useMemo(
+    () => buildSecondsLine(timer, now),
+    [timer.startedAt, timer.pausedAt, timer.accumulatedPause, now],
+  );
 
   const numberStyle: TextStyle = { ...v.numberStyle, color };
   const unitStyle: TextStyle = { ...v.unitStyle, color: colors.textSecondary };
+  const secondsStyle: TextStyle = {
+    ...typography.caption,
+    fontFamily: "Inter_500Medium",
+    color: colors.textSecondary,
+    letterSpacing: 0.4,
+  };
 
   return (
-    <View style={[styles.row, { gap: v.gap }]}>
-      {segments.map((seg, i) => (
-        <View key={seg.unit} style={styles.segment}>
-          <View style={styles.numberRow}>
-            {seg.value.split("").map((ch, idx) => (
-              <AnimatedDigit
-                key={`${seg.unit}-${idx}`}
-                value={ch}
-                textStyle={numberStyle}
-                height={v.height}
-                width={charWidth(numberStyle.fontSize ?? 28)}
-              />
-            ))}
+    <View style={styles.stack}>
+      <View style={[styles.row, { gap: v.gap }]}>
+        {segments.map((seg, i) => (
+          <View key={seg.unit} style={styles.segment}>
+            <View style={styles.numberRow}>
+              {seg.value.split("").map((ch, idx) => (
+                <AnimatedDigit
+                  key={`${seg.unit}-${idx}`}
+                  value={ch}
+                  textStyle={numberStyle}
+                  height={v.height}
+                  width={charWidth(numberStyle.fontSize ?? 28)}
+                />
+              ))}
+            </View>
+            <Text style={[unitStyle, styles.unit]}>{seg.unit}</Text>
+            {i < segments.length - 1 ? (
+              <Text style={[unitStyle, styles.dot]}>·</Text>
+            ) : null}
           </View>
-          <Text style={[unitStyle, styles.unit]}>{seg.unit}</Text>
-          {i < segments.length - 1 ? (
-            <Text style={[unitStyle, styles.dot]}>·</Text>
-          ) : null}
-        </View>
-      ))}
+        ))}
+      </View>
+      {secondsLine ? (
+        <Text style={[secondsStyle, styles.secondsLine]}>{secondsLine}</Text>
+      ) : null}
     </View>
   );
 }
@@ -159,6 +174,26 @@ function chooseSegments(
   ];
 }
 
+/**
+ * The bottom seconds line. We render it below the magnitude row whenever the
+ * top row doesn't already carry seconds (i.e. when the timer is at days+
+ * scale). Mirrors the widget's `Chronometer` line.
+ */
+function buildSecondsLine(t: Timer, now: number): string | null {
+  const e = elapsedAt(t, now);
+  if (e.hours === 0 && e.days === 0 && e.months === 0 && e.years === 0) {
+    return null; // already shown as a primary segment
+  }
+  if (e.days === 0 && e.months === 0 && e.years === 0) {
+    return null; // hours scale: seconds are already in primary segments
+  }
+  const totalSec = Math.floor(e.totalMs / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${pad2(m)}:${pad2(s)}`;
+}
+
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
 }
@@ -168,9 +203,11 @@ function charWidth(fontSize: number): number {
 }
 
 const styles = StyleSheet.create({
+  stack: { flexDirection: "column", alignItems: "flex-start", gap: 2 },
   row: { flexDirection: "row", alignItems: "flex-end" },
   segment: { flexDirection: "row", alignItems: "flex-end", gap: 2 },
   numberRow: { flexDirection: "row", alignItems: "flex-end" },
   unit: { paddingBottom: 4, paddingLeft: 2 },
   dot: { paddingHorizontal: 6, paddingBottom: 4, fontSize: 16, opacity: 0.5 },
+  secondsLine: { marginTop: 2 },
 });

@@ -8,6 +8,11 @@
   The dot is an ImageView (not a View with background) so we can dynamically
   tint it via RemoteViews.setInt(... "setColorFilter", colorInt) — that method
   is only RemotableViewMethod-annotated on ImageView.
+
+  The seconds line is a Chronometer — RemoteViews supports `setChronometer`
+  which lets the OS animate the clock frame-by-frame without waking our
+  AppWidgetProvider every second. The magnitude line above it is plain text
+  refreshed once per minute by the AlarmManager tick in the provider.
 -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -59,6 +64,18 @@
       android:fontFamily="serif"
       android:singleLine="true"
       android:text="" />
+
+  <Chronometer
+      android:id="@+id/widget_seconds"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="2dp"
+      android:textColor="#6B6358"
+      android:textSize="13sp"
+      android:fontFeatureSettings="tnum"
+      android:fontFamily="sans-serif-medium"
+      android:singleLine="true"
+      android:format="%s" />
 
   <TextView
       android:id="@+id/widget_label"

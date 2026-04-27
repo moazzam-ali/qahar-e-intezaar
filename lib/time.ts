@@ -41,17 +41,20 @@ export function elapsedAt(timer: Timer, now: number): Elapsed {
 
 /**
  * Adapt a compact widget-style format to the magnitude of the elapsed time.
- *   <1h:   "42m 17s"
- *   <1d:   "5h 42m"
- *   <1mo:  "12d 5h 42m"
- *   <1y:   "3mo 12d 5h"
- *   >=1y:  "3y 4mo 12d"
+ * Mirrors `QaharFormat.compact` (iOS) and `formatCompact` (Android widget
+ * provider) word-for-word so all three surfaces render the same string for
+ * the same elapsed duration.
+ *   <1h:   "42m · 17s"
+ *   <1d:   "5h · 42m · 17s"
+ *   <1mo:  "12d · 5h · 42m"
+ *   <1y:   "3mo · 12d · 5h"
+ *   >=1y:  "3y · 4mo · 12d"
  */
 export function formatCompact(e: Elapsed): string {
   if (e.years > 0) return `${e.years}y · ${e.months}mo · ${e.days}d`;
   if (e.months > 0) return `${e.months}mo · ${e.days}d · ${e.hours}h`;
   if (e.days > 0) return `${e.days}d · ${e.hours}h · ${e.minutes}m`;
-  if (e.hours > 0) return `${e.hours}h · ${e.minutes}m`;
+  if (e.hours > 0) return `${e.hours}h · ${e.minutes}m · ${pad2(e.seconds)}s`;
   return `${e.minutes}m · ${pad2(e.seconds)}s`;
 }
 
