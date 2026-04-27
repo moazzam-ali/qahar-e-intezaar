@@ -15,7 +15,9 @@ import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { colors } from "@/constants/colors";
+import { setupNotifications } from "@/lib/notifications";
 import { useTimerStore } from "@/lib/store";
 import { DURATION } from "@/lib/motion";
 
@@ -35,6 +37,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     void hydrate();
+    void setupNotifications();
   }, [hydrate]);
 
   useEffect(() => {
@@ -48,29 +51,34 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
       <SafeAreaProvider>
-        <StatusBar style="dark" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: colors.bg },
-            animation: "slide_from_right",
-            animationDuration: DURATION.sheet,
-          }}
-        >
-          <Stack.Screen name="index" />
-          <Stack.Screen
-            name="timer/new"
-            options={{
-              presentation: "modal",
-              animation: "slide_from_bottom",
+        <ErrorBoundary>
+          <StatusBar style="dark" />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: colors.bg },
+              animation: "slide_from_right",
+              animationDuration: DURATION.sheet,
             }}
-          />
-          <Stack.Screen name="timer/[id]" />
-          <Stack.Screen
-            name="settings"
-            options={{ presentation: "modal", animation: "slide_from_bottom" }}
-          />
-        </Stack>
+          >
+            <Stack.Screen name="index" />
+            <Stack.Screen
+              name="timer/new"
+              options={{
+                presentation: "modal",
+                animation: "slide_from_bottom",
+              }}
+            />
+            <Stack.Screen name="timer/[id]" />
+            <Stack.Screen
+              name="settings"
+              options={{
+                presentation: "modal",
+                animation: "slide_from_bottom",
+              }}
+            />
+          </Stack>
+        </ErrorBoundary>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

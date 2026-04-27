@@ -203,27 +203,46 @@ function withQaharAndroidManifest(config) {
   });
 }
 
-/** Inject `packages.add(QaharWidgetPackage())` into MainApplication.kt. */
+/**
+ * Inject `add(QaharWidgetPackage())` into MainApplication.kt.
+ *
+ * The Expo template has changed shape twice; this handles both the modern
+ * `getPackages() = PackageList(this).packages.apply { ... }` form and the
+ * older `val packages = PackageList(this).packages; ...; return packages`
+ * form. Idempotent — reruns are no-ops.
+ */
 function withQaharAndroidPackageRegister(config) {
   return withMainApplication(config, (cfg) => {
     const pkg = cfg.android?.package ?? "com.qaharteam.qaharehijr";
     const importLine = `import ${pkg}.widget.QaharWidgetPackage`;
-    const addLine = `packages.add(QaharWidgetPackage())`;
+    const addAtStart = `add(QaharWidgetPackage())`;
+    const addLegacy = `packages.add(QaharWidgetPackage())`;
 
     let src = cfg.modResults.contents;
+
+    // 1. Add import after the package line.
     if (!src.includes(importLine)) {
-      src = src.replace(
-        /^(package [^\n]+\n)/m,
-        `$1\n${importLine}\n`,
-      );
+      src = src.replace(/^(package [^\n]+\n)/m, `$1\n${importLine}\n`);
     }
-    if (!src.includes(addLine)) {
-      // Inject inside `getPackages()` just before `return packages`.
-      src = src.replace(
-        /(val packages = PackageList\(this\)\.packages[\s\S]*?)(\n\s*return packages)/,
-        `$1\n      ${addLine}$2`,
-      );
+
+    // 2. Inject the registration in whichever shape the file takes.
+    if (!src.includes(addAtStart) && !src.includes(addLegacy)) {
+      const applyForm =
+        /(PackageList\(this\)\.packages\s*\.apply\s*\{)([\s\S]*?)(\n\s*\})/;
+      const legacyForm =
+        /(val\s+packages\s*=\s*PackageList\(this\)\.packages[\s\S]*?)(\n\s*return\s+packages)/;
+
+      if (applyForm.test(src)) {
+        src = src.replace(applyForm, `$1$2\n          ${addAtStart}$3`);
+      } else if (legacyForm.test(src)) {
+        src = src.replace(legacyForm, `$1\n      ${addLegacy}$2`);
+      } else {
+        console.warn(
+          "[withQaharWidget] Could not find getPackages() body in MainApplication.kt — register QaharWidgetPackage manually.",
+        );
+      }
     }
+
     cfg.modResults.contents = src;
     return cfg;
   });

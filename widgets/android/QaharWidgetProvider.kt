@@ -5,7 +5,6 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.os.Build
@@ -21,8 +20,8 @@ import java.util.Locale
  *
  * Refresh strategy: AppWidgetManager wakes us once per minute via the
  * `updatePeriodMillis` declaration in `qahar_widget_info.xml`. Sub-minute
- * updates are not permitted by the OS — accept this, document it, and use a
- * cross-fade on each refresh so the new value doesn't blink in.
+ * updates are not permitted by the OS — the elapsed string is rounded to
+ * minute precision to match.
  */
 class QaharWidgetProvider : AppWidgetProvider() {
 
@@ -49,6 +48,7 @@ class QaharWidgetProvider : AppWidgetProvider() {
       val mgr = AppWidgetManager.getInstance(context)
       val component = ComponentName(context, QaharWidgetProvider::class.java)
       val ids = mgr.getAppWidgetIds(component)
+      if (ids.isEmpty()) return
       ids.forEach { mgr.updateAppWidget(it, buildRemoteViews(context)) }
     }
 
@@ -57,20 +57,31 @@ class QaharWidgetProvider : AppWidgetProvider() {
       val timer = readSelectedTimer(context)
 
       if (timer == null) {
-        views.setTextViewText(R.id.widget_label, "Add a timer")
+        views.setTextViewText(R.id.widget_label_main, "Add a timer")
         views.setTextViewText(R.id.widget_elapsed, "—")
-        views.setInt(R.id.widget_dot, "setColorFilter", Color.parseColor("#B8826B"))
+        views.setTextViewText(R.id.widget_label, "")
+        // Tint the dot via setColorFilter — it's an ImageView in the layout.
+        views.setInt(
+          R.id.widget_dot,
+          "setColorFilter",
+          Color.parseColor("#B8826B"),
+        )
       } else {
-        views.setTextViewText(R.id.widget_label, "since ${formatStartedLine(timer.startedAt)}")
-        views.setTextViewText(R.id.widget_elapsed, formatCompact(elapsedMs(timer)))
-        views.setInt(R.id.widget_dot, "setColorFilter", parseColorOrFallback(timer.color))
         views.setTextViewText(R.id.widget_label_main, timer.label)
+        views.setTextViewText(
+          R.id.widget_elapsed,
+          formatCompact(elapsedMs(timer)),
+        )
+        views.setTextViewText(
+          R.id.widget_label,
+          "since ${formatStartedLine(timer.startedAt)}",
+        )
+        views.setInt(
+          R.id.widget_dot,
+          "setColorFilter",
+          parseColorOrFallback(timer.color),
+        )
       }
-
-      // Cross-fade visibility flip to soften the per-minute redraw. The
-      // RemoteViews framework respects setTransitionName + AnimationDrawable
-      // poorly, so we lean on setLong/animation hints where supported.
-      views.setInt(R.id.widget_root, "setBackgroundResource", R.drawable.qahar_widget_bg)
 
       // Tap → open the app
       val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
@@ -125,6 +136,10 @@ class QaharWidgetProvider : AppWidgetProvider() {
       return (ref - t.startedAt - t.accumulatedPause).coerceAtLeast(0L)
     }
 
+    /**
+     * Magnitude-aware compact format. Mirrors `QaharFormat.compact` in
+     * QaharWidget.swift word-for-word so iOS and Android render identically.
+     */
     private fun formatCompact(ms: Long): String {
       val sec = 1000L
       val min = 60 * sec

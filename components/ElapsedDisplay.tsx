@@ -1,17 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { StyleSheet, View, type TextStyle } from "react-native";
-import Animated, {
-  FadeIn,
-  FadeOut,
-  useDerivedValue,
-  runOnJS,
-} from "react-native-reanimated";
+import { useMemo } from "react";
+import { StyleSheet, Text, View, type TextStyle } from "react-native";
 
 import { AnimatedDigit } from "@/components/AnimatedDigit";
 import { useNow } from "@/hooks/useNow";
 import { colors } from "@/constants/colors";
 import { type as typography, tabular } from "@/constants/typography";
-import { DURATION } from "@/lib/motion";
 import { elapsedAt } from "@/lib/time";
 import type { Timer } from "@/types";
 
@@ -65,10 +58,16 @@ const VARIANT_STYLES: Record<
 };
 
 /**
- * Live-updating elapsed display. Subscribes to the shared 1Hz clock via a
- * Reanimated derived value, and only triggers React updates when the formatted
- * string actually changes — so the seconds digit re-renders, but the years
- * digit does not (until rollover).
+ * Live-updating elapsed display. Subscribes to the shared 1Hz JS clock and
+ * recomputes segments via `useMemo`. The per-glyph slide animation lives in
+ * `AnimatedDigit` and is driven by prop changes — completely independent of
+ * how the parent ticks.
+ *
+ * No worklets here on purpose: an earlier implementation drove digits from a
+ * Reanimated `useDerivedValue` that called `runOnJS` with arrays of objects
+ * across the worklet boundary, which crashed on second-mount under release
+ * builds. The simple JS path below is reliable and the cost is one React
+ * re-render per second per visible card — well inside our perf budget.
  */
 export function ElapsedDisplay({
   timer,
@@ -77,35 +76,11 @@ export function ElapsedDisplay({
 }: Props) {
   const now = useNow();
   const v = VARIANT_STYLES[variant];
-  const lastKeyRef = useRef<string>("");
 
-  // We render per-magnitude segments as: [number] [unit-letter]
-  const [segments, setSegments] = useState<Segment[]>(() =>
-    buildSegments(timer, Date.now()),
+  const segments = useMemo(
+    () => buildSegments(timer, now),
+    [timer.startedAt, timer.pausedAt, timer.accumulatedPause, now],
   );
-
-  // Closure that runs on the JS thread; captures setSegments + lastKeyRef
-  // lexically so we don't have to ship them across the bridge as args.
-  const apply = (next: Segment[], key: string) => {
-    if (key !== lastKeyRef.current) {
-      lastKeyRef.current = key;
-      setSegments(next);
-    }
-  };
-
-  // Worklet subscription: recompute segments on the UI thread every tick.
-  // Only nudge React when the formatted output actually changed.
-  useDerivedValue(() => {
-    const next = buildSegmentsWorklet(timer, now.value);
-    const key = next.map((s) => `${s.value}${s.unit}`).join("|");
-    runOnJS(apply)(next, key);
-    return null;
-  }, [timer.startedAt, timer.pausedAt, timer.accumulatedPause]);
-
-  // Re-snap on mount in case the timer prop changed.
-  useEffect(() => {
-    setSegments(buildSegments(timer, Date.now()));
-  }, [timer.id, timer.startedAt, timer.pausedAt, timer.accumulatedPause]);
 
   const numberStyle: TextStyle = { ...v.numberStyle, color };
   const unitStyle: TextStyle = { ...v.unitStyle, color: colors.textSecondary };
@@ -113,7 +88,7 @@ export function ElapsedDisplay({
   return (
     <View style={[styles.row, { gap: v.gap }]}>
       {segments.map((seg, i) => (
-        <View key={`${seg.unit}-${i}`} style={styles.segment}>
+        <View key={seg.unit} style={styles.segment}>
           <View style={styles.numberRow}>
             {seg.value.split("").map((ch, idx) => (
               <AnimatedDigit
@@ -125,17 +100,9 @@ export function ElapsedDisplay({
               />
             ))}
           </View>
-          <Animated.Text
-            entering={FadeIn.duration(DURATION.base)}
-            exiting={FadeOut.duration(DURATION.base)}
-            style={unitStyle}
-          >
-            {seg.unit}
-          </Animated.Text>
+          <Text style={[unitStyle, styles.unit]}>{seg.unit}</Text>
           {i < segments.length - 1 ? (
-            <View style={styles.dotWrap}>
-              <Animated.Text style={[unitStyle, styles.dot]}>·</Animated.Text>
-            </View>
+            <Text style={[unitStyle, styles.dot]}>·</Text>
           ) : null}
         </View>
       ))}
@@ -145,41 +112,9 @@ export function ElapsedDisplay({
 
 type Segment = { value: string; unit: string };
 
-/** JS version (mount/refresh path). */
 function buildSegments(t: Timer, now: number): Segment[] {
   const e = elapsedAt(t, now);
   return chooseSegments(e.years, e.months, e.days, e.hours, e.minutes, e.seconds);
-}
-
-/**
- * Worklet version. Inlined math (no closures over JS-only modules) so it can
- * run on the UI thread.
- */
-function buildSegmentsWorklet(t: Timer, now: number): Segment[] {
-  "worklet";
-  const ref = t.pausedAt ?? now;
-  const totalMs = Math.max(0, ref - t.startedAt - t.accumulatedPause);
-  const SEC = 1000;
-  const MIN = 60 * SEC;
-  const HOUR = 60 * MIN;
-  const DAY = 24 * HOUR;
-  const MONTH = Math.round(30.4375 * DAY);
-  const YEAR = Math.round(365.25 * DAY);
-
-  let r = totalMs;
-  const years = Math.floor(r / YEAR);
-  r -= years * YEAR;
-  const months = Math.floor(r / MONTH);
-  r -= months * MONTH;
-  const days = Math.floor(r / DAY);
-  r -= days * DAY;
-  const hours = Math.floor(r / HOUR);
-  r -= hours * HOUR;
-  const minutes = Math.floor(r / MIN);
-  r -= minutes * MIN;
-  const seconds = Math.floor(r / SEC);
-
-  return chooseSegments(years, months, days, hours, minutes, seconds);
 }
 
 function chooseSegments(
@@ -190,7 +125,6 @@ function chooseSegments(
   minutes: number,
   seconds: number,
 ): Segment[] {
-  "worklet";
   if (years > 0) {
     return [
       { value: String(years), unit: "y" },
@@ -226,13 +160,9 @@ function chooseSegments(
 }
 
 function pad2(n: number): string {
-  "worklet";
   return n < 10 ? `0${n}` : String(n);
 }
 
-
-/** Approximate width per character at a given font size. Fraunces tabular-nums
- * is roughly 0.55em wide; we round up for safety so digits never crowd. */
 function charWidth(fontSize: number): number {
   return Math.ceil(fontSize * 0.6);
 }
@@ -241,6 +171,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "flex-end" },
   segment: { flexDirection: "row", alignItems: "flex-end", gap: 2 },
   numberRow: { flexDirection: "row", alignItems: "flex-end" },
-  dotWrap: { paddingHorizontal: 6, paddingBottom: 2 },
-  dot: { fontSize: 16, opacity: 0.5 },
+  unit: { paddingBottom: 4, paddingLeft: 2 },
+  dot: { paddingHorizontal: 6, paddingBottom: 4, fontSize: 16, opacity: 0.5 },
 });

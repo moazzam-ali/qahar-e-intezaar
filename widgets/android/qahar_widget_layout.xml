@@ -4,6 +4,10 @@
   (qahar_widget_bg.xml). Text colors are tuned for legibility on light
   wallpapers; readability on dark wallpapers is acceptable thanks to the
   semi-opaque cream surface.
+
+  The dot is an ImageView (not a View with background) so we can dynamically
+  tint it via RemoteViews.setInt(... "setColorFilter", colorInt) — that method
+  is only RemotableViewMethod-annotated on ImageView.
 -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -20,12 +24,13 @@
       android:orientation="horizontal"
       android:gravity="center_vertical">
 
-    <View
+    <ImageView
         android:id="@+id/widget_dot"
         android:layout_width="6dp"
         android:layout_height="6dp"
         android:layout_marginEnd="8dp"
-        android:background="@drawable/qahar_widget_dot" />
+        android:src="@drawable/qahar_widget_dot"
+        android:contentDescription="@null" />
 
     <TextView
         android:id="@+id/widget_label_main"

@@ -1,176 +1,55 @@
-import { format } from "date-fns";
-import { useRouter } from "expo-router";
-import { X } from "lucide-react-native";
-import { useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useMemo } from "react";
 
-import { ColorPicker } from "@/components/ColorPicker";
-import { colors } from "@/constants/colors";
-import { DEFAULT_TIMER_COLOR, type TimerColor } from "@/constants/palette";
-import { type as typography } from "@/constants/typography";
+import { TimerForm, type TimerFormValues } from "@/components/TimerForm";
 import { hapticSuccess } from "@/hooks/useHaptic";
 import { scheduleMilestones } from "@/lib/notifications";
-import { useTimerStore } from "@/lib/store";
+import { selectTimerById, useTimerStore } from "@/lib/store";
 
-export default function NewTimerScreen() {
+/**
+ * One screen, two modes:
+ *   - `/timer/new`        → create
+ *   - `/timer/new?id=xyz` → edit existing timer xyz
+ *
+ * The edit mode reuses the same form so back-dating, color, and label edits
+ * all land in one consistent place.
+ */
+export default function NewOrEditTimerScreen() {
   const router = useRouter();
+  const { id } = useLocalSearchParams<{ id?: string }>();
+
   const create = useTimerStore((s) => s.create);
+  const update = useTimerStore((s) => s.update);
+  const existing = useTimerStore(
+    useMemo(() => selectTimerById(id ?? ""), [id]),
+  );
 
-  const [label, setLabel] = useState("");
-  const [color, setColor] = useState<TimerColor>(DEFAULT_TIMER_COLOR);
-  const [startedAt, setStartedAt] = useState<number>(Date.now());
+  const isEdit = Boolean(id) && Boolean(existing);
 
-  const canSave = label.trim().length > 0;
-
-  const onSave = () => {
-    if (!canSave) return;
-    const t = create({ label, color, startedAt });
+  const onSubmit = (values: TimerFormValues) => {
+    if (isEdit && existing) {
+      update(existing.id, {
+        label: values.label,
+        color: values.color,
+        startedAt: values.startedAt,
+      });
+    } else {
+      const t = create(values);
+      void scheduleMilestones(t);
+    }
     hapticSuccess();
-    void scheduleMilestones(t);
-    router.back();
+    // Defer back() one frame so the haptic and modal-close animation don't
+    // race the store update on slower devices.
+    requestAnimationFrame(() => router.back());
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <View style={styles.headerRow}>
-          <Pressable
-            onPress={() => router.back()}
-            hitSlop={12}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-          >
-            <X size={22} color={colors.textSecondary} strokeWidth={1.5} />
-          </Pressable>
-          <Text style={styles.title}>New hijr</Text>
-          <Pressable
-            disabled={!canSave}
-            onPress={onSave}
-            accessibilityRole="button"
-            accessibilityLabel="Save"
-            hitSlop={8}
-          >
-            <Text
-              style={[
-                styles.saveText,
-                !canSave && { color: colors.textTertiary },
-              ]}
-            >
-              Save
-            </Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.body}>
-          <Text style={styles.label}>What are you counting since?</Text>
-          <TextInput
-            value={label}
-            onChangeText={setLabel}
-            placeholder="e.g. since I quit smoking"
-            placeholderTextColor={colors.textTertiary}
-            maxLength={60}
-            style={styles.input}
-            autoFocus
-            returnKeyType="done"
-            onSubmitEditing={onSave}
-          />
-          <View style={styles.underline} />
-
-          <Text style={[styles.label, styles.section]}>Color</Text>
-          <ColorPicker value={color} onChange={setColor} />
-
-          <Text style={[styles.label, styles.section]}>Started at</Text>
-          <View style={styles.startRow}>
-            <Text style={styles.startedAt}>
-              {format(new Date(startedAt), "EEE, d MMM yyyy 'at' h:mm a")}
-            </Text>
-            <Pressable
-              onPress={() => setStartedAt(Date.now())}
-              hitSlop={8}
-              accessibilityRole="button"
-            >
-              <Text style={styles.linkText}>Now</Text>
-            </Pressable>
-          </View>
-          <Text style={styles.hint}>
-            For a date in the past, edit after creating — the back-date picker
-            lives in the detail view.
-          </Text>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+    <TimerForm
+      initial={isEdit ? existing : undefined}
+      onCancel={() => router.back()}
+      onSubmit={onSubmit}
+      title={isEdit ? "Edit hijr" : "New hijr"}
+      submitLabel="Save"
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  safe: { flex: 1, backgroundColor: colors.bg },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 16,
-  },
-  title: {
-    ...typography.bodyMedium,
-    color: colors.textPrimary,
-  },
-  saveText: {
-    ...typography.bodyMedium,
-    color: colors.accent,
-  },
-  body: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 24,
-  },
-  label: {
-    ...typography.sectionHeader,
-    color: colors.textSecondary,
-  },
-  section: { marginTop: 28 },
-  input: {
-    ...typography.body,
-    fontFamily: "Fraunces_400Regular",
-    fontSize: 22,
-    color: colors.textPrimary,
-    paddingVertical: 8,
-  },
-  underline: {
-    height: 1,
-    backgroundColor: colors.border,
-  },
-  startRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 8,
-  },
-  startedAt: {
-    ...typography.body,
-    color: colors.textPrimary,
-  },
-  linkText: {
-    ...typography.bodyMedium,
-    color: colors.accent,
-  },
-  hint: {
-    ...typography.caption,
-    color: colors.textTertiary,
-    marginTop: 8,
-  },
-});

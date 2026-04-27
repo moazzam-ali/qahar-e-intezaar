@@ -1,4 +1,5 @@
 import { Check } from "lucide-react-native";
+import { useEffect } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -39,16 +40,21 @@ function ColorDot({
   onPress: () => void;
 }) {
   const scale = useSharedValue(selected ? 1.15 : 1);
-  scale.value = withTiming(selected ? 1.15 : 1, {
-    duration: DURATION.digit,
-    easing: EASE_OUT,
-  });
-
   const tickOpacity = useSharedValue(selected ? 1 : 0);
-  tickOpacity.value = withTiming(selected ? 1 : 0, {
-    duration: DURATION.digit,
-    easing: EASE_OUT,
-  });
+
+  // Mutate shared values inside an effect, never during render — Reanimated
+  // tolerates render-time mutation but it can fire on every parent re-render
+  // and queues up redundant timing animations.
+  useEffect(() => {
+    scale.value = withTiming(selected ? 1.15 : 1, {
+      duration: DURATION.digit,
+      easing: EASE_OUT,
+    });
+    tickOpacity.value = withTiming(selected ? 1 : 0, {
+      duration: DURATION.digit,
+      easing: EASE_OUT,
+    });
+  }, [selected, scale, tickOpacity]);
 
   const dotStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],

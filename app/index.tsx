@@ -97,7 +97,7 @@ export default function HomeScreen() {
                 {
                   label: "Edit",
                   onPress: () =>
-                    router.push(`/timer/${longPressed.id}?edit=1`),
+                    router.push(`/timer/new?id=${longPressed.id}`),
                 },
                 {
                   label: "Reset",

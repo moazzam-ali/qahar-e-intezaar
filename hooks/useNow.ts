@@ -1,51 +1,45 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AppState } from "react-native";
-import { useSharedValue, type SharedValue } from "react-native-reanimated";
 
 /**
- * A single app-wide 1Hz clock, exposed as a Reanimated shared value.
+ * A 1Hz JS clock for ticking elapsed displays.
  *
- * Components that need the current time should subscribe via `useNow()` and
- * read `now.value` inside derived values / worklets — this avoids React
- * re-renders on every tick. Animation logic stays on the UI thread.
+ * Returns a number (unix ms) that updates roughly every `intervalMs`. Each
+ * subscriber gets its own React state, so re-renders happen on the JS thread
+ * only for components that read this value.
  *
- * On background → foreground we immediately rebase to Date.now() so timers
- * stay accurate even after long-running interruptions (the JS interval may
- * have been throttled or stopped while backgrounded).
+ * Performance: with `intervalMs=1000` and a list of N TimerCards, you pay N
+ * React re-renders per second — fine for our scale (≤ a few dozen on screen).
+ *
+ * Resilience: rebases to `Date.now()` on background → foreground so the OS
+ * throttling the JS interval while backgrounded doesn't leave us showing a
+ * stale value when the user comes back.
+ *
+ * Earlier versions used a Reanimated `SharedValue` singleton with refcount,
+ * but that pattern broke for any second-mounted consumer (singleton race) and
+ * couldn't drive React state updates without `runOnJS`, which fed too much
+ * complexity into the per-tick hot path. The simple version below is faster
+ * to reason about and avoids the white-screen-on-second-render footgun.
  */
-let interval: ReturnType<typeof setInterval> | null = null;
-let refCount = 0;
-const sharedNow = { current: null as SharedValue<number> | null };
-
-export function useNow(): SharedValue<number> {
-  const local = useSharedValue<number>(Date.now());
+export function useNow(intervalMs = 1000): number {
+  const [now, setNow] = useState<number>(() => Date.now());
 
   useEffect(() => {
-    if (!sharedNow.current) sharedNow.current = local;
-
-    refCount += 1;
-
-    if (!interval) {
-      interval = setInterval(() => {
-        if (sharedNow.current) sharedNow.current.value = Date.now();
-      }, 1000);
-    }
+    let mounted = true;
+    const id = setInterval(() => {
+      if (mounted) setNow(Date.now());
+    }, intervalMs);
 
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active" && sharedNow.current) {
-        sharedNow.current.value = Date.now();
-      }
+      if (state === "active" && mounted) setNow(Date.now());
     });
 
     return () => {
-      refCount -= 1;
+      mounted = false;
+      clearInterval(id);
       sub.remove();
-      if (refCount <= 0 && interval) {
-        clearInterval(interval);
-        interval = null;
-      }
     };
-  }, [local]);
+  }, [intervalMs]);
 
-  return sharedNow.current ?? local;
+  return now;
 }

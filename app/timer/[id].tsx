@@ -1,6 +1,14 @@
 import { format } from "date-fns";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, Pause, Play, RefreshCw, Share2, Trash2 } from "lucide-react-native";
+import {
+  ArrowLeft,
+  Pause,
+  Pencil,
+  Play,
+  RefreshCw,
+  Share2,
+  Trash2,
+} from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import {
   Pressable,
@@ -18,23 +26,18 @@ import { ElapsedDisplay } from "@/components/ElapsedDisplay";
 import { colors } from "@/constants/colors";
 import { type as typography } from "@/constants/typography";
 import { hapticPress, hapticSoft, hapticWarning } from "@/hooks/useHaptic";
+import { useNow } from "@/hooks/useNow";
 import { cancelMilestones } from "@/lib/notifications";
-import {
-  selectTimerById,
-  useTimerStore,
-} from "@/lib/store";
-import {
-  elapsedAt,
-  formatClock,
-  formatHuman,
-  totalDays,
-} from "@/lib/time";
+import { selectTimerById, useTimerStore } from "@/lib/store";
+import { elapsedAt, formatClock, formatHuman, totalDays } from "@/lib/time";
 import { DURATION } from "@/lib/motion";
 
 export default function TimerDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const timer = useTimerStore(selectTimerById(id ?? ""));
+  const timer = useTimerStore(
+    useMemo(() => selectTimerById(id ?? ""), [id]),
+  );
   const pause = useTimerStore((s) => s.pause);
   const resume = useTimerStore((s) => s.resume);
   const reset = useTimerStore((s) => s.reset);
@@ -43,19 +46,14 @@ export default function TimerDetailScreen() {
   const [resetSheet, setResetSheet] = useState(false);
   const [resetMessage, setResetMessage] = useState(false);
 
-  // The hero ticks via Reanimated worklets (no re-render). The prose facts
-  // below are rendered from JS state, so we keep a low-frequency 1Hz refresh
-  // here just to keep "Total days" / clock honest while the screen is open.
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
+  // Shared 1Hz JS clock — same one driving the hero ElapsedDisplay below.
+  // We just consume it here so prose facts (Total days, clock readout) stay
+  // in sync without spawning a second redundant interval.
+  const now = useNow();
 
   const snapshot = useMemo(
-    () => (timer ? elapsedAt(timer, Date.now()) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [timer?.id, timer?.startedAt, timer?.pausedAt, timer?.accumulatedPause, tick],
+    () => (timer ? elapsedAt(timer, now) : null),
+    [timer, now],
   );
 
   useEffect(() => {
@@ -106,16 +104,38 @@ export default function TimerDetailScreen() {
             accessibilityRole="button"
             accessibilityLabel="Back"
           >
-            <ArrowLeft size={22} color={colors.textSecondary} strokeWidth={1.5} />
+            <ArrowLeft
+              size={22}
+              color={colors.textSecondary}
+              strokeWidth={1.5}
+            />
           </Pressable>
-          <Pressable
-            onPress={onShare}
-            hitSlop={12}
-            accessibilityRole="button"
-            accessibilityLabel="Share"
-          >
-            <Share2 size={20} color={colors.textSecondary} strokeWidth={1.5} />
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable
+              onPress={() => router.push(`/timer/new?id=${timer.id}`)}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Edit"
+            >
+              <Pencil
+                size={20}
+                color={colors.textSecondary}
+                strokeWidth={1.5}
+              />
+            </Pressable>
+            <Pressable
+              onPress={onShare}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Share"
+            >
+              <Share2
+                size={20}
+                color={colors.textSecondary}
+                strokeWidth={1.5}
+              />
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.labelRow}>
@@ -124,6 +144,7 @@ export default function TimerDetailScreen() {
             {timer.icon ? `${timer.icon}  ` : ""}
             {timer.label}
           </Text>
+          {isPaused ? <Text style={styles.pausedTag}>PAUSED</Text> : null}
         </View>
 
         <View style={styles.hero}>
@@ -146,7 +167,10 @@ export default function TimerDetailScreen() {
             <View style={styles.factRow}>
               <Text style={styles.factKey}>Started</Text>
               <Text style={styles.factVal}>
-                {format(new Date(timer.startedAt), "EEE, d MMM yyyy 'at' h:mm a")}
+                {format(
+                  new Date(timer.startedAt),
+                  "EEE, d MMM yyyy 'at' h:mm a",
+                )}
               </Text>
             </View>
           </View>
@@ -159,19 +183,28 @@ export default function TimerDetailScreen() {
               isPaused ? (
                 <Play size={18} color={colors.textPrimary} strokeWidth={1.5} />
               ) : (
-                <Pause size={18} color={colors.textPrimary} strokeWidth={1.5} />
+                <Pause
+                  size={18}
+                  color={colors.textPrimary}
+                  strokeWidth={1.5}
+                />
               )
             }
             onPress={() => {
               hapticPress();
-              isPaused ? resume(timer.id) : pause(timer.id);
+              if (isPaused) resume(timer.id);
+              else pause(timer.id);
             }}
           />
           <ActionButton
             label="Reset"
             destructive
             icon={
-              <RefreshCw size={18} color={colors.textPrimary} strokeWidth={1.5} />
+              <RefreshCw
+                size={18}
+                color={colors.textPrimary}
+                strokeWidth={1.5}
+              />
             }
             onPress={() => {
               hapticWarning();
@@ -182,7 +215,11 @@ export default function TimerDetailScreen() {
             label="Archive"
             destructive
             icon={
-              <Trash2 size={18} color={colors.textPrimary} strokeWidth={1.5} />
+              <Trash2
+                size={18}
+                color={colors.textPrimary}
+                strokeWidth={1.5}
+              />
             }
             onPress={onArchive}
           />
@@ -203,9 +240,7 @@ export default function TimerDetailScreen() {
         visible={resetSheet}
         onDismiss={() => setResetSheet(false)}
         title="Reset this hijr to zero?"
-        items={[
-          { label: "Reset", destructive: true, onPress: onConfirmReset },
-        ]}
+        items={[{ label: "Reset", destructive: true, onPress: onConfirmReset }]}
       />
     </SafeAreaView>
   );
@@ -225,10 +260,7 @@ function ActionButton({
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.actionBtn,
-        { opacity: pressed ? 0.7 : 1 },
-      ]}
+      style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.7 : 1 }]}
       accessibilityRole="button"
       accessibilityLabel={label}
     >
@@ -255,6 +287,11 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 16,
   },
+  headerActions: {
+    flexDirection: "row",
+    gap: 18,
+    alignItems: "center",
+  },
   labelRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -266,6 +303,12 @@ const styles = StyleSheet.create({
     ...typography.bodyMedium,
     color: colors.textPrimary,
     flex: 1,
+  },
+  pausedTag: {
+    ...typography.caption,
+    fontFamily: "Inter_500Medium",
+    color: colors.textTertiary,
+    letterSpacing: 0.6,
   },
   hero: {
     paddingTop: 28,
@@ -299,6 +342,8 @@ const styles = StyleSheet.create({
   factVal: {
     ...typography.body,
     color: colors.textPrimary,
+    flexShrink: 1,
+    textAlign: "right",
   },
   actions: {
     marginTop: 24,

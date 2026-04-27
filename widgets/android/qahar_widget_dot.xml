@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Solid white circle. The widget provider tints this drawable at runtime via
+  RemoteViews.setInt(... "setColorFilter", color). Starting from white means
+  the resulting tint is the exact terracotta hex the user picked.
+-->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
        android:shape="oval">
-  <solid android:color="#B8826B" />
+  <solid android:color="#FFFFFFFF" />
 </shape>

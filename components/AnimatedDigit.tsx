@@ -21,8 +21,10 @@ type Props = {
 
 /**
  * One slot of a digit display. When `value` changes, the outgoing glyph slides
- * up + fades out while the incoming glyph slides in from below — buttery via
- * Reanimated worklets, no JS-thread re-renders mid-animation.
+ * up + fades out while the incoming glyph slides up from below.
+ *
+ * Pure prop-driven — no shared clocks, no worklets, no `useNow`. The parent
+ * owns the cadence; this component just animates whenever `value` changes.
  *
  * Punctuation (':', ' ', '·') passes through without animation.
  */
@@ -38,15 +40,27 @@ export function AnimatedDigit({ value, textStyle, height, width }: Props) {
       return;
     }
     if (value === previous) return;
+
     progress.value = 0;
     progress.value = withTiming(1, {
       duration: reduced ? 80 : DURATION.digit,
       easing: EASE_OUT,
     });
-    // Wait one tick before "consuming" the previous value so the outgoing
-    // glyph has a chance to be rendered with progress=0 before crossfading.
-    const t = setTimeout(() => setPrevious(value), reduced ? 90 : DURATION.digit + 20);
-    return () => clearTimeout(t);
+
+    // After the slide finishes, "consume" the previous value so the outgoing
+    // glyph unmounts. We keep a flag so the cleanup can early-out if the
+    // component unmounted in the meantime — avoids a stale setState.
+    let cancelled = false;
+    const t = setTimeout(
+      () => {
+        if (!cancelled) setPrevious(value);
+      },
+      reduced ? 90 : DURATION.digit + 20,
+    );
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
   }, [value, previous, progress, reduced]);
 
   const slide = height * 0.45;
