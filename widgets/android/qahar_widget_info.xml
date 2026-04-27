@@ -1,14 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  60_000ms is the minimum allowed updatePeriodMillis on Android — sub-minute
-  ticking is not possible on the home screen. This is documented in DESIGN.md.
+  AppWidget metadata.
+
+  - updatePeriodMillis: Android clamps this to a 30-minute minimum (1_800_000ms).
+    Anything smaller is silently ignored. We declare the real minimum here and
+    rely on the AlarmManager tick in QaharWidgetProvider for per-minute freshness
+    of the magnitude line. The live seconds tick comes from a Chronometer view,
+    which the OS animates frame-by-frame without waking the provider.
+  - previewLayout: Android 12+ uses this to render a faithful preview in the
+    widget picker. Samsung One UI's picker tends to refuse widgets that lack
+    one, which can manifest as "Could not add widget" on Galaxy A-series.
+  - widgetCategory: home_screen — keyguard is deprecated.
+  - resizeMode: horizontal|vertical so the user can size on a 4x2 if they want.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/qahar_widget_layout"
+    android:previewLayout="@layout/qahar_widget_layout"
+    android:description="@string/qahar_widget_description"
     android:minWidth="110dp"
     android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="110dp"
     android:targetCellWidth="2"
     android:targetCellHeight="2"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
-    android:updatePeriodMillis="60000" />
+    android:updatePeriodMillis="1800000" />

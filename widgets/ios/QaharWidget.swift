@@ -53,13 +53,29 @@ enum QaharFormat {
     let months = r / month; r -= months * month
     let days = r / day; r -= days * day
     let hours = r / hour; r -= hours * hour
-    let minutes = r / minute
+    let minutes = r / minute; r -= minutes * minute
+    let seconds = r
 
     if years > 0 { return "\(years)y · \(months)mo · \(days)d" }
     if months > 0 { return "\(months)mo · \(days)d · \(hours)h" }
     if days > 0 { return "\(days)d · \(hours)h · \(minutes)m" }
-    if hours > 0 { return "\(hours)h · \(minutes)m" }
-    return "\(minutes)m"
+    if hours > 0 { return "\(hours)h · \(minutes)m · \(pad2(seconds))s" }
+    return "\(minutes)m · \(pad2(seconds))s"
+  }
+
+  private static func pad2(_ n: Int64) -> String {
+    return n < 10 ? "0\(n)" : "\(n)"
+  }
+
+  /// HH:MM:SS-style frozen readout used while the timer is paused (when we
+  /// can't lean on Text(timerInterval:) for live ticking).
+  static func clock(elapsedSeconds: TimeInterval) -> String {
+    let total = max(0, Int64(elapsedSeconds))
+    let h = total / 3600
+    let m = (total % 3600) / 60
+    let s = total % 60
+    if h > 0 { return "\(h):\(pad2(m)):\(pad2(s))" }
+    return "\(pad2(m)):\(pad2(s))"
   }
 }
 
@@ -71,17 +87,19 @@ struct QaharEntry: TimelineEntry {
   let date: Date
   /// "Effective start" — startedAt + accumulatedPause. Letting SwiftUI's
   /// `Text(timerInterval:)` count up from this single anchor gives a free
-  /// live tick on short timers.
+  /// live tick.
   let effectiveStart: Date
   let label: String
   let isPaused: Bool
-  /// Pre-computed magnitude string for medium-and-longer timers / paused state.
-  let pausedSnapshot: String?
+  /// Pre-computed magnitude string. Always present — refreshed once per
+  /// minute via timeline entries. The magnitude line never carries seconds,
+  /// because the live Text(timerInterval:) below it provides the tick.
+  let magnitude: String
   let accent: Color
-  /// True for timers under 1 hour — small enough that the OS-driven HH:MM:SS
-  /// tick reads cleanly. Beyond that we fall back to the magnitude format,
-  /// refreshed once per minute via timeline entries.
-  let useLiveTick: Bool
+  /// When false (paused), we render the frozen magnitude only — no live tick.
+  let showLiveTick: Bool
+  /// Frozen "MM:SS" / "H:MM:SS" snapshot used while paused.
+  let pausedClock: String?
 }
 
 @available(iOS 17.0, *)
@@ -92,9 +110,10 @@ struct Provider: AppIntentTimelineProvider {
       effectiveStart: .now.addingTimeInterval(-3600 * 24),
       label: "Since",
       isPaused: false,
-      pausedSnapshot: "1d · 0h · 0m",
+      magnitude: "1d · 0h · 0m",
       accent: Color(hex: "#B8826B"),
-      useLiveTick: false
+      showLiveTick: true,
+      pausedClock: nil
     )
   }
 
@@ -103,9 +122,9 @@ struct Provider: AppIntentTimelineProvider {
   }
 
   /// We emit a window of entries spaced one minute apart, each with its own
-  /// pre-computed magnitude string. This gives readable widget text without
-  /// the OS having to wake us every second. After the window expires, the
-  /// timeline policy schedules a refresh.
+  /// pre-computed magnitude string. The seconds tick is rendered by SwiftUI's
+  /// own `Text(timerInterval:)` so the OS animates the seconds for free —
+  /// our timeline only carries minute-grained magnitude updates.
   func timeline(for configuration: SelectTimerIntent, in context: Context) async -> Timeline<QaharEntry> {
     let now = Date()
     let entries: [QaharEntry] = (0..<60).map { i in
@@ -123,9 +142,10 @@ struct Provider: AppIntentTimelineProvider {
         effectiveStart: at,
         label: "Add a timer",
         isPaused: true,
-        pausedSnapshot: nil,
+        magnitude: "—",
         accent: Color(hex: "#B8826B"),
-        useLiveTick: false
+        showLiveTick: false,
+        pausedClock: nil
       )
     }
 
@@ -134,7 +154,7 @@ struct Provider: AppIntentTimelineProvider {
     let effective = started.addingTimeInterval(pauseAccum)
 
     let isPaused = timer.pausedAt != nil
-    let snapshotSeconds: TimeInterval = {
+    let elapsedSeconds: TimeInterval = {
       if let pausedMs = timer.pausedAt {
         let pausedDate = Date(timeIntervalSince1970: pausedMs / 1000)
         return max(0, pausedDate.timeIntervalSince(effective))
@@ -142,16 +162,15 @@ struct Provider: AppIntentTimelineProvider {
       return max(0, at.timeIntervalSince(effective))
     }()
 
-    let liveOk = !isPaused && snapshotSeconds < 3600 // live HH:MM:SS only under 1h
-
     return QaharEntry(
       date: at,
       effectiveStart: effective,
-      label: timer.label,
+      label: timer.label.isEmpty ? "Timer" : timer.label,
       isPaused: isPaused,
-      pausedSnapshot: liveOk ? nil : QaharFormat.compact(elapsedSeconds: snapshotSeconds),
+      magnitude: QaharFormat.compact(elapsedSeconds: elapsedSeconds),
       accent: Color(hex: timer.color),
-      useLiveTick: liveOk
+      showLiveTick: !isPaused,
+      pausedClock: isPaused ? QaharFormat.clock(elapsedSeconds: elapsedSeconds) : nil
     )
   }
 }
@@ -164,7 +183,7 @@ struct QaharWidgetEntryView: View {
   let entry: QaharEntry
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 8) {
         Circle()
           .fill(entry.accent)
@@ -175,7 +194,8 @@ struct QaharWidgetEntryView: View {
           .lineLimit(1)
       }
       Spacer(minLength: 0)
-      elapsedView
+      magnitudeView
+      secondsTickView
       if family == .systemMedium {
         Text(startedSubtitle)
           .font(.system(size: 11))
@@ -190,24 +210,36 @@ struct QaharWidgetEntryView: View {
   }
 
   @ViewBuilder
-  private var elapsedView: some View {
-    let size: CGFloat = family == .systemMedium ? 30 : 22
+  private var magnitudeView: some View {
+    let size: CGFloat = family == .systemMedium ? 28 : 20
+    Text(entry.magnitude)
+      .font(.custom("Fraunces", size: size))
+      .foregroundColor(Color(hex: "#2A2520"))
+      .monospacedDigit()
+      .contentTransition(.numericText())
+      .lineLimit(1)
+      .minimumScaleFactor(0.7)
+  }
+
+  @ViewBuilder
+  private var secondsTickView: some View {
     Group {
-      if entry.useLiveTick {
-        // Sub-1h timer: native OS tick via Text(timerInterval:). This is the
-        // only widget API that updates per second without the timeline waking
+      if entry.showLiveTick {
+        // OS-driven per-second tick. Independent of timeline entries — this
+        // is the only widget API that updates every second without waking
         // the extension.
-        Text(timerInterval: entry.effectiveStart...Date.distantFuture, countsDown: false)
-      } else if let snap = entry.pausedSnapshot {
-        Text(snap)
+        Text(timerInterval: entry.effectiveStart...Date.distantFuture,
+             countsDown: false)
+      } else if let frozen = entry.pausedClock {
+        Text(frozen)
       } else {
-        Text("—")
+        Text("")
       }
     }
-    .font(.custom("Fraunces", size: size))
-    .foregroundColor(Color(hex: "#2A2520"))
+    .font(.system(size: 13, weight: .medium))
+    .foregroundColor(Color(hex: "#6B6358"))
     .monospacedDigit()
-    .contentTransition(.numericText())
+    .lineLimit(1)
   }
 
   private var startedSubtitle: String {
