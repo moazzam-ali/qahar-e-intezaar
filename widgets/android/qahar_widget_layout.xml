@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Glass-on-warm-cream widget body. Background is a rounded translucent panel
+  (qahar_widget_bg.xml). Text colors are tuned for legibility on light
+  wallpapers; readability on dark wallpapers is acceptable thanks to the
+  semi-opaque cream surface.
+-->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@drawable/qahar_widget_bg">
+
+  <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="horizontal"
+      android:gravity="center_vertical">
+
+    <View
+        android:id="@+id/widget_dot"
+        android:layout_width="6dp"
+        android:layout_height="6dp"
+        android:layout_marginEnd="8dp"
+        android:background="@drawable/qahar_widget_dot" />
+
+    <TextView
+        android:id="@+id/widget_label_main"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textColor="#6B6358"
+        android:textSize="12sp"
+        android:fontFamily="sans-serif-medium"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:text="" />
+  </LinearLayout>
+
+  <Space
+      android:layout_width="match_parent"
+      android:layout_height="0dp"
+      android:layout_weight="1" />
+
+  <TextView
+      android:id="@+id/widget_elapsed"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:textColor="#2A2520"
+      android:textSize="22sp"
+      android:fontFamily="serif"
+      android:singleLine="true"
+      android:text="" />
+
+  <TextView
+      android:id="@+id/widget_label"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="2dp"
+      android:textColor="#A89F90"
+      android:textSize="11sp"
+      android:singleLine="true"
+      android:ellipsize="end"
+      android:text="" />
+</LinearLayout>

@@ -1,0 +1,21 @@
+node_modules/
+.expo/
+dist/
+web-build/
+.DS_Store
+*.log
+*.tsbuildinfo
+
+# Native build artifacts (managed via prebuild / EAS).
+# Anchored to repo root so the source files in widgets/ios and widgets/android
+# stay tracked.
+/ios/
+/android/
+
+# Env
+.env*
+!.env.example
+
+# Editor
+.vscode/
+.idea/
