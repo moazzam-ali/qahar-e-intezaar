@@ -49,7 +49,11 @@
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "e6cd33d4-6d4a-4d07-b0aa-d199865a5b5a"
       }
-    }
+    },
+    "owner": "moazzam_ali"
   }
 }
