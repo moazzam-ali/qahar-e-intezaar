@@ -1,18 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Runtime widget layout. Strictly limited to the views in the @RemoteView
-  allowlist on every Android version we support: LinearLayout, ImageView,
-  TextView, Chronometer. No Space, no fontFeatureSettings, no custom view
-  classes — Samsung's One UI launcher rejects layouts that include anything
-  outside that list with a generic "Could not add widget" tile.
-
-  The dot is an ImageView so we can dynamically tint it via
-  RemoteViews.setInt(... "setColorFilter", colorInt). The seconds line is a
-  Chronometer so the OS animates it every second without waking the provider.
+  Picker preview only. Strictly @RemoteView-safe widgets, no Chronometer, no
+  Space, no custom font features. Samsung's One UI widget picker renders this
+  in its OWN process; anything fancy here can manifest as "Could not add
+  widget" with a gray tile. The runtime layout (qahar_widget_layout.xml) is
+  free to use richer views since it's bound after the user accepts the add.
 -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -26,7 +21,6 @@
       android:gravity="center_vertical">
 
     <ImageView
-        android:id="@+id/widget_dot"
         android:layout_width="6dp"
         android:layout_height="6dp"
         android:layout_marginEnd="8dp"
@@ -34,7 +28,6 @@
         android:contentDescription="@null" />
 
     <TextView
-        android:id="@+id/widget_label_main"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
@@ -42,36 +35,33 @@
         android:textSize="12sp"
         android:singleLine="true"
         android:ellipsize="end"
-        android:text="" />
+        android:text="Qahar-e-Hijr" />
   </LinearLayout>
 
   <TextView
-      android:id="@+id/widget_elapsed"
       android:layout_width="wrap_content"
       android:layout_height="wrap_content"
-      android:layout_marginTop="20dp"
+      android:layout_marginTop="24dp"
       android:textColor="#2A2520"
       android:textSize="22sp"
       android:singleLine="true"
-      android:text="" />
+      android:text="12d · 4h · 23m" />
 
-  <Chronometer
-      android:id="@+id/widget_seconds"
+  <TextView
       android:layout_width="wrap_content"
       android:layout_height="wrap_content"
       android:layout_marginTop="2dp"
       android:textColor="#6B6358"
       android:textSize="13sp"
-      android:singleLine="true" />
+      android:singleLine="true"
+      android:text="42:17" />
 
   <TextView
-      android:id="@+id/widget_label"
       android:layout_width="match_parent"
       android:layout_height="wrap_content"
       android:layout_marginTop="2dp"
       android:textColor="#A89F90"
       android:textSize="11sp"
       android:singleLine="true"
-      android:ellipsize="end"
-      android:text="" />
+      android:text="since 5 Apr 2026" />
 </LinearLayout>

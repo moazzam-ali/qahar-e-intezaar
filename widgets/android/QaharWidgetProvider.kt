@@ -11,6 +11,7 @@ import android.content.SharedPreferences
 import android.graphics.Color
 import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 import android.widget.RemoteViews
 import com.qaharteam.qaharehijr.R
 import org.json.JSONArray
@@ -33,16 +34,11 @@ import java.util.Locale
  *      to re-render the views aligned to the next minute boundary. The alarm
  *      is opportunistic (`set`, not exact) so it costs nothing in Doze.
  *
- * Edge cases handled:
- *   - First widget add (no JS data yet): renders an "Add a timer" placeholder.
- *   - All timers archived/deleted: same placeholder.
- *   - Selected timer disappears: falls back to the first non-archived timer.
- *   - Malformed JSON in SharedPreferences: returns null, placeholder shown.
- *   - Bad color hex: falls back to terracotta.
- *   - System reboot: AppWidgetService re-fires APPWIDGET_UPDATE; onEnabled()
- *     is also re-run on first widget add post-reboot, re-arming the alarm.
- *   - Paused timer: chronometer stops at the frozen elapsed value.
- *   - Future startedAt (clock skew): elapsed is clamped to ≥ 0.
+ * Defensiveness contract: nothing in this file is allowed to throw across the
+ * AppWidget host's binder boundary. Every public override and every helper
+ * called from one wraps its body in try/catch — if anything goes wrong we log
+ * and bail rather than crash the launcher (which is what surfaces in Samsung
+ * One UI as the gray "Couldn't load widget" tile).
  */
 class QaharWidgetProvider : AppWidgetProvider() {
 
@@ -51,62 +47,84 @@ class QaharWidgetProvider : AppWidgetProvider() {
     appWidgetManager: AppWidgetManager,
     appWidgetIds: IntArray
   ) {
-    appWidgetIds.forEach { id ->
-      try {
-        appWidgetManager.updateAppWidget(id, buildRemoteViews(context))
-      } catch (_: Throwable) {
-        // Defensive: never crash the launcher's RemoteViews host.
+    try {
+      val views = buildRemoteViews(context)
+      appWidgetIds.forEach { id ->
+        try {
+          appWidgetManager.updateAppWidget(id, views)
+        } catch (t: Throwable) {
+          Log.w(TAG, "updateAppWidget($id) failed", t)
+        }
       }
+    } catch (t: Throwable) {
+      Log.w(TAG, "onUpdate failed", t)
     }
-    scheduleNextTick(context)
+    // Alarm scheduling MUST NOT throw out of onUpdate — the host has already
+    // received our views by this point and the widget should be visible.
+    try { scheduleNextTick(context) } catch (t: Throwable) {
+      Log.w(TAG, "scheduleNextTick failed", t)
+    }
   }
 
   override fun onEnabled(context: Context) {
     super.onEnabled(context)
-    scheduleNextTick(context)
+    try { scheduleNextTick(context) } catch (t: Throwable) {
+      Log.w(TAG, "scheduleNextTick(onEnabled) failed", t)
+    }
   }
 
   override fun onDisabled(context: Context) {
     super.onDisabled(context)
-    cancelTick(context)
+    try { cancelTick(context) } catch (t: Throwable) {
+      Log.w(TAG, "cancelTick failed", t)
+    }
   }
 
   override fun onReceive(context: Context, intent: Intent) {
-    super.onReceive(context, intent)
+    try {
+      super.onReceive(context, intent)
+    } catch (t: Throwable) {
+      Log.w(TAG, "super.onReceive failed", t)
+    }
     if (intent.action == ACTION_TICK) {
-      refreshAll(context)
-      scheduleNextTick(context)
+      try {
+        refreshAll(context)
+        scheduleNextTick(context)
+      } catch (t: Throwable) {
+        Log.w(TAG, "tick refresh failed", t)
+      }
     }
   }
 
   companion object {
+    private const val TAG = "QaharWidget"
     const val PREFS_NAME = "qahar_shared"
     const val KEY_TIMERS = "qahar.timers"
     const val KEY_WIDGET_ID = "qahar.widgetTimerId"
     const val ACTION_TICK = "com.qaharteam.qaharehijr.widget.ACTION_TICK"
     private const val TICK_REQUEST_CODE = 0x71A4 // arbitrary, stable across rebuilds
+    private const val DEFAULT_ACCENT_HEX = "#B8826B"
+    private const val FALLBACK_ACCENT_INT = 0xFFB8826B.toInt()
 
-    private val DEFAULT_ACCENT = Color.parseColor("#B8826B")
+    /** Lazy color parse — never blows up class loading even on bad inputs. */
+    private fun defaultAccent(): Int = parseColorOrFallback(DEFAULT_ACCENT_HEX)
 
     /**
      * Called from the JS bridge after every mutation so the user sees changes
      * promptly instead of waiting for the next tick.
      */
     fun refreshAll(context: Context) {
-      val mgr = AppWidgetManager.getInstance(context) ?: return
+      val mgr = try { AppWidgetManager.getInstance(context) } catch (_: Throwable) { null }
+        ?: return
       val component = ComponentName(context, QaharWidgetProvider::class.java)
-      val ids = try {
-        mgr.getAppWidgetIds(component)
-      } catch (_: Throwable) {
-        return
-      }
+      val ids = try { mgr.getAppWidgetIds(component) } catch (_: Throwable) { return }
       if (ids.isEmpty()) return
-      val views = buildRemoteViews(context)
+      val views = try { buildRemoteViews(context) } catch (t: Throwable) {
+        Log.w(TAG, "refreshAll buildRemoteViews failed", t); return
+      }
       ids.forEach { id ->
-        try {
-          mgr.updateAppWidget(id, views)
-        } catch (_: Throwable) {
-          // Swallow — a broken host shouldn't take us down.
+        try { mgr.updateAppWidget(id, views) } catch (t: Throwable) {
+          Log.w(TAG, "refreshAll updateAppWidget($id) failed", t)
         }
       }
     }
@@ -119,11 +137,10 @@ class QaharWidgetProvider : AppWidgetProvider() {
         views.setTextViewText(R.id.widget_label_main, "Add a timer")
         views.setTextViewText(R.id.widget_elapsed, "—")
         views.setTextViewText(R.id.widget_label, "Tap to open")
-        // Stop the chronometer and hide it — there's nothing meaningful to
-        // tick. View.GONE = 8.
+        // Stop the chronometer at zero and hide it. View.GONE = 8.
         views.setChronometer(R.id.widget_seconds, SystemClock.elapsedRealtime(), null, false)
         views.setViewVisibility(R.id.widget_seconds, 8)
-        views.setInt(R.id.widget_dot, "setColorFilter", DEFAULT_ACCENT)
+        views.setInt(R.id.widget_dot, "setColorFilter", defaultAccent())
       } else {
         val elapsed = elapsedMs(timer)
         val isPaused = timer.pausedAt != null
@@ -146,11 +163,14 @@ class QaharWidgetProvider : AppWidgetProvider() {
         views.setInt(R.id.widget_dot, "setColorFilter", parseColorOrFallback(timer.color))
       }
 
-      val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
-      if (launch != null) {
-        val flags = pendingIntentFlags()
-        val pi = PendingIntent.getActivity(context, 0, launch, flags)
-        views.setOnClickPendingIntent(R.id.widget_root, pi)
+      try {
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        if (launch != null) {
+          val pi = PendingIntent.getActivity(context, 0, launch, pendingIntentFlags())
+          views.setOnClickPendingIntent(R.id.widget_root, pi)
+        }
+      } catch (t: Throwable) {
+        Log.w(TAG, "set click intent failed", t)
       }
 
       return views
@@ -167,6 +187,9 @@ class QaharWidgetProvider : AppWidgetProvider() {
     private fun tickPendingIntent(context: Context): PendingIntent {
       val intent = Intent(context, QaharWidgetProvider::class.java).apply {
         action = ACTION_TICK
+        // Explicit intent (component set) — setPackage is belt-and-braces for
+        // Android 14+'s strict broadcast targeting.
+        setPackage(context.packageName)
       }
       return PendingIntent.getBroadcast(
         context,
@@ -220,8 +243,9 @@ class QaharWidgetProvider : AppWidgetProvider() {
         // Direct-boot / locked-profile path can throw on older OEMs.
         return null
       }
-      val raw = prefs.getString(KEY_TIMERS, null) ?: return null
-      val selectedId = prefs.getString(KEY_WIDGET_ID, null)
+      val raw = try { prefs.getString(KEY_TIMERS, null) } catch (_: Throwable) { null }
+        ?: return null
+      val selectedId = try { prefs.getString(KEY_WIDGET_ID, null) } catch (_: Throwable) { null }
       val arr = try { JSONArray(raw) } catch (_: Exception) { return null }
       if (arr.length() == 0) return null
 
@@ -243,7 +267,7 @@ class QaharWidgetProvider : AppWidgetProvider() {
           pausedAt = pausedAt,
           accumulatedPause = o.optDouble("accumulatedPause", 0.0).toLong()
             .coerceAtLeast(0L),
-          color = o.optString("color", "#B8826B"),
+          color = o.optString("color", DEFAULT_ACCENT_HEX),
           archived = o.optBoolean("archived", false),
         )
         if (snapshot.archived) continue
@@ -294,12 +318,15 @@ class QaharWidgetProvider : AppWidgetProvider() {
     private fun pad2(n: Long): String = if (n < 10) "0$n" else n.toString()
 
     private fun formatStartedLine(startedAt: Long): String {
-      return SimpleDateFormat("d MMM yyyy", Locale.getDefault())
-        .format(Date(startedAt))
+      return try {
+        SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(Date(startedAt))
+      } catch (_: Throwable) {
+        ""
+      }
     }
 
     private fun parseColorOrFallback(hex: String): Int {
-      return try { Color.parseColor(hex) } catch (_: Exception) { DEFAULT_ACCENT }
+      return try { Color.parseColor(hex) } catch (_: Exception) { FALLBACK_ACCENT_INT }
     }
   }
 }

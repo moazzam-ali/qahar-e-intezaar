@@ -7,15 +7,18 @@
     rely on the AlarmManager tick in QaharWidgetProvider for per-minute freshness
     of the magnitude line. The live seconds tick comes from a Chronometer view,
     which the OS animates frame-by-frame without waking the provider.
-  - previewLayout: Android 12+ uses this to render a faithful preview in the
-    widget picker. Samsung One UI's picker tends to refuse widgets that lack
-    one, which can manifest as "Could not add widget" on Galaxy A-series.
+  - previewLayout: must be a fully-static, RemoteViews-safe layout — Samsung's
+    One UI picker renders this in its own process before the user accepts the
+    add. Anything that fails to inflate here surfaces as "Could not add widget"
+    in the picker. We point at a separate, deliberately conservative layout.
+  - initialLayout: the runtime view, bound by our provider after the user
+    accepts the add. May safely use Chronometer etc.
   - widgetCategory: home_screen — keyguard is deprecated.
   - resizeMode: horizontal|vertical so the user can size on a 4x2 if they want.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/qahar_widget_layout"
-    android:previewLayout="@layout/qahar_widget_layout"
+    android:previewLayout="@layout/qahar_widget_preview"
     android:description="@string/qahar_widget_description"
     android:minWidth="110dp"
     android:minHeight="110dp"
