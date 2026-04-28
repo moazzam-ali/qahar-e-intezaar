@@ -176,6 +176,10 @@ function withQaharAndroidWidgetSources(config) {
         path.join(layoutDir, "qahar_widget_layout.xml"),
       );
       fs.copyFileSync(
+        path.join(sourceDir, "qahar_widget_preview.xml"),
+        path.join(layoutDir, "qahar_widget_preview.xml"),
+      );
+      fs.copyFileSync(
         path.join(sourceDir, "qahar_widget_bg.xml"),
         path.join(drawableDir, "qahar_widget_bg.xml"),
       );
